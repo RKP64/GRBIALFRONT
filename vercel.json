@@ -1,0 +1,8 @@
+{
+    "rewrites": [
+        {
+            "source": "/api/(.*)",
+            "destination": "https://grbial.onrender.com/api/$1"
+        }
+    ]
+}
