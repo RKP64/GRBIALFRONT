@@ -6,6 +6,8 @@ const KIND_LABEL = {
   refusal: 'Knowing when to decline', passage: 'Source wording',
 }
 
+const modelId = (m) => (typeof m === 'string' ? m : m?.id || '')
+
 export default function Train({ domain }) {
   const [providers, setProviders] = useState([])
   const [datasets, setDatasets] = useState([])
@@ -18,7 +20,8 @@ export default function Train({ domain }) {
 
   const [gen, setGen] = useState({
     include_facts: true, include_inverse: true, include_multihop: true,
-    include_refusals: true, include_passages: false, seed: 42,
+    include_refusals: true, include_passages: false, rephrase: false,
+    abstract_entities: false, seed: 42,
   })
   const [cfg, setCfg] = useState({
     provider: '', base_model: '', suffix: '', epochs: 2, seed: 42,
@@ -39,7 +42,7 @@ export default function Train({ domain }) {
       setCfg((c) => ({
         ...c,
         provider: c.provider || trainable?.key || '',
-        base_model: c.base_model || trainable?.base_models?.[0] || '',
+        base_model: c.base_model || modelId(trainable?.base_models?.[0]) || '',
       }))
     } catch (err) { setError(err.message) }
   }
@@ -116,6 +119,13 @@ export default function Train({ domain }) {
                 ['include_multihop', 'Two-step reasoning', 'Facts that must be joined to answer.'],
                 ['include_refusals', 'Knowing when to decline', 'Questions the graph cannot answer.'],
                 ['include_passages', 'Source wording', 'Passages as written, if kept during ingestion.'],
+                ['abstract_entities', 'Shareable (names removed)',
+                 'Replace every entity name with a typed placeholder. Teaches '
+                 + 'vocabulary and reasoning without carrying your facts, so the '
+                 + 'dataset can leave your organisation. Source passages are excluded.'],
+                ['rephrase', 'Natural phrasing',
+                 'Rewrite the generated questions the way a person would ask them. '
+                 + 'Costs model calls; answers are never altered.'],
               ].map(([key, label, help]) => (
                 <label key={key} className="row" style={{ alignItems: 'flex-start', gap: 10 }}>
                   <input type="checkbox" checked={gen[key]} style={{ marginTop: 4 }}
@@ -148,9 +158,9 @@ export default function Train({ domain }) {
                             onChange={(e) => {
                               const p = providers.find((x) => x.key === e.target.value)
                               setCfg({ ...cfg, provider: e.target.value,
-                                       base_model: p?.base_models?.[0] || '' })
+                                       base_model: modelId(p?.base_models?.[0]) || '' })
                             }}>
-                      {trainable.map((p) => <option key={p.key} value={p.key}>{p.key}</option>)}
+                      {trainable.map((p) => <option key={p.key} value={p.key}>{p.label || p.key}</option>)}
                     </select>
                   </div>
                   <div className="field">
@@ -158,7 +168,11 @@ export default function Train({ domain }) {
                     {activeProvider?.base_models?.length ? (
                       <select className="domain-select" value={cfg.base_model}
                               onChange={(e) => setCfg({ ...cfg, base_model: e.target.value })}>
-                        {activeProvider.base_models.map((m) => <option key={m} value={m}>{m}</option>)}
+                        {activeProvider.base_models.map((m) => (
+                          typeof m === 'string'
+                            ? <option key={m} value={m}>{m}</option>
+                            : <option key={m.id} value={m.id}>{m.label || m.id}</option>
+                        ))}
                       </select>
                     ) : (
                       <input className="input" value={cfg.base_model} placeholder="model identifier"
@@ -252,6 +266,22 @@ export default function Train({ domain }) {
                   <button className="btn btn-primary" onClick={start} disabled={busy || !selected}>
                     {selected ? 'Start training' : 'Choose a training set first'}
                   </button>
+                  {activeProvider && (
+                    <div className="chips" style={{ marginTop: 8 }}>
+                      <span className="chip"
+                            style={activeProvider.can_download_weights
+                              ? { background: '#E8F5E9', color: '#1F7A4D',
+                                  borderColor: '#BFE3CC' }
+                              : {}}>
+                        {activeProvider.can_download_weights
+                          ? 'Weights downloadable'
+                          : 'Weights stay with provider'}
+                      </span>
+                      {activeProvider.data_residency && (
+                        <span className="chip">{activeProvider.data_residency}</span>
+                      )}
+                    </div>
+                  )}
                   {activeProvider?.requirements?.length > 0 && (
                     <p className="hint">
                       Needs: {activeProvider.requirements.join('; ')}.

@@ -1,20 +1,107 @@
 const BASE = import.meta.env.VITE_API_BASE || '/api'
 const KEY = import.meta.env.VITE_API_KEY || 'dev-key-change-me'
 
+// A signed-in session takes precedence; the configured key is the fallback so
+// a developer instance works before anyone has signed in.
+function authHeaders() {
+  const token = localStorage.getItem('kg_token')
+  return token ? { Authorization: `Bearer ${token}` } : { 'X-API-Key': KEY }
+}
+
+function signOut() {
+  localStorage.removeItem('kg_token')
+  localStorage.removeItem('kg_user')
+}
+
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {
     ...options,
-    headers: { 'X-API-Key': KEY, ...(options.headers || {}) },
+    headers: { ...authHeaders(), ...(options.headers || {}) },
   })
+  if (res.status === 401 && localStorage.getItem('kg_token')
+      && !path.startsWith('/auth/login')) {
+    // The session has expired or been revoked. Clear it and let the app fall
+    // back to the login page, rather than leaving every panel showing an error.
+    signOut()
+    window.location.reload()
+  }
   if (!res.ok) {
     let detail = `Request failed (${res.status})`
-    try { detail = (await res.json()).detail || detail } catch { /* non-JSON body */ }
+    try { detail = formatDetail((await res.json()).detail) || detail } catch { /* non-JSON body */ }
     throw new Error(detail)
   }
   return res.status === 204 ? null : res.json()
 }
 
+/** Turn an error body into something a person can read.
+ *
+ * FastAPI returns a plain string for errors we raise ourselves, but a list of
+ * objects for request-validation failures — {loc, msg, type} per offending
+ * field. Passing that list straight to Error() stringifies each object as
+ * "[object Object]", which hides the one thing the user needs: which field is
+ * wrong and why.
+ */
+function formatDetail(detail) {
+  if (!detail) return ''
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        if (typeof item === 'string') return item
+        const where = Array.isArray(item?.loc)
+          ? item.loc.filter((p) => p !== 'body').join(' → ')
+          : ''
+        const message = item?.msg || item?.message || JSON.stringify(item)
+        return where ? `${where}: ${message}` : message
+      })
+      .join('; ')
+  }
+  if (typeof detail === 'object') {
+    return detail.msg || detail.message || JSON.stringify(detail)
+  }
+  return String(detail)
+}
+
 export const api = {
+  login: (username, password) =>
+    request('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    }),
+  logout: signOut,
+  authUsers: () => request('/auth/users'),
+  createUser: (body) =>
+    request('/auth/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  deleteUser: (username) => request(`/auth/users/${username}`, { method: 'DELETE' }),
+  auditLog: (limit = 100) => request(`/auth/audit?limit=${limit}`),
+  importOntology: (file) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request('/ontologies/import', { method: 'POST', body: form })
+  },
+  impact: (domain, entity, hops = 2) =>
+    request(`/graph/${domain}/impact?entity=${encodeURIComponent(entity)}&hops=${hops}`),
+  evalSets: () => request('/evals/sets'),
+  evalSet: (key) => request(`/evals/sets/${key}`),
+  uploadEvalSet: (key, name, file) => {
+    const form = new FormData()
+    form.append('key', key); form.append('name', name); form.append('file', file)
+    return request('/evals/sets', { method: 'POST', body: form })
+  },
+  deleteEvalSet: (key) => request(`/evals/sets/${key}`, { method: 'DELETE' }),
+  startEval: (body) =>
+    request('/evals/runs', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  evalRuns: () => request('/evals/runs'),
+  evalRun: (id) => request(`/evals/runs/${id}`),
+  evalCompare: (a, b) => request(`/evals/compare?a=${a}&b=${b}`),
   ready: () => request('/readyz'),
   me: () => request('/access/me'),
   usage: (days = 30) => request(`/usage?days=${days}`),
@@ -77,6 +164,34 @@ export const api = {
   probeMcpServer: (key) => request(`/tool-servers/${key}/probe`, { method: 'POST' }),
   deleteMcpServer: (key) => request(`/tool-servers/${key}`, { method: 'DELETE' }),
   agents: () => request('/agents'),
+  agent: (key) => request(`/agents/${key}`),
+  saveAgent: (body) =>
+    request('/agents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  deleteAgent: (key) => request(`/agents/${key}`, { method: 'DELETE' }),
+  askAgent: (key, body) =>
+    request(`/agents/${key}/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  deployAgent: (key, body = {}) =>
+    request(`/agents/${key}/deploy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  undeployAgent: (key) =>
+    request(`/agents/${key}/undeploy`, { method: 'POST' }),
+  analyzeFiles: (files, goal = '') => {
+    const form = new FormData()
+    form.append('goal', goal)
+    for (const f of files) form.append('files', f)
+    return request('/design/analyze', { method: 'POST', body: form })
+  },
   saveAgent: (body) =>
     request('/agents', {
       method: 'POST',

@@ -15,6 +15,8 @@ export default function Schema({ domain, onDomainsChanged }) {
   const [error, setError] = useState(null)
   const [saved, setSaved] = useState(null)
   const [showPrompt, setShowPrompt] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importNotes, setImportNotes] = useState([])
 
   // new-row inputs
   const [newType, setNewType] = useState({ name: '', id_rule: '' })
@@ -45,7 +47,65 @@ export default function Schema({ domain, onDomainsChanged }) {
     setEditing(true); setSaved(null)
   }
 
-  const startNew = () => { setDraft(blank()); setEditing(true); setSaved(null); setError(null) }
+  const startNew = () => {
+    setDraft(blank()); setEditing(true); setSaved(null); setError(null); setImportNotes([])
+  }
+
+  // Read a schema someone wrote elsewhere. JSON is parsed as-is; a spreadsheet
+  // or document is mapped by the backend. Either way the result lands in the
+  // editor as a draft so it can be checked before it becomes the contract.
+  const importFile = async (event) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setImporting(true); setError(null); setSaved(null); setImportNotes([])
+    try {
+      const d = await api.importOntology(file)
+      setDraft({
+        key: d.key || '', name: d.name || '', description: d.description || '',
+        entity_types: d.entity_types || {},
+        allowed_triples: d.allowed_triples || [],
+        normalization_rules: d.normalization_rules || [],
+        id_transforms: d.id_transforms || [],
+        strip_type_prefixes: d.strip_type_prefixes !== false,
+        collapse_whitespace: d.collapse_whitespace !== false,
+        open_relations: !!d.open_relations,
+        custom_prompt: d.custom_prompt || '',
+      })
+      const count = Object.keys(d.entity_types || {}).length
+      setImportNotes([
+        d.source === 'mapped'
+          ? `Read ${count} entity types and ${(d.allowed_triples || []).length} relationships from ${file.name}. This was interpreted from your document — check it before saving.`
+          : `Loaded ${count} entity types and ${(d.allowed_triples || []).length} relationships from ${file.name}.`,
+        ...(d.notes || []),
+      ])
+      setEditing(true)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const exportJson = () => {
+    if (!spec) return
+    const payload = {
+      key: spec.key, name: spec.name, description: spec.description,
+      entity_types: spec.entity_types,
+      allowed_triples: spec.allowed_triples,
+      normalization_rules: spec.normalization_rules,
+      id_transforms: spec.id_transforms,
+      strip_type_prefixes: spec.strip_type_prefixes,
+      collapse_whitespace: spec.collapse_whitespace,
+      open_relations: spec.open_relations,
+      custom_prompt: spec.custom_prompt,
+    }
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }))
+    const a = document.createElement('a')
+    a.href = url; a.download = `${spec.key}-ontology.json`; a.click()
+    URL.revokeObjectURL(url)
+  }
 
   const save = async () => {
     setError(null)
@@ -105,6 +165,14 @@ export default function Schema({ domain, onDomainsChanged }) {
               </>
             )}
             <button className="btn" onClick={startNew}>New ontology</button>
+            <button className="btn" onClick={exportJson}
+                    disabled={!spec}>Export JSON</button>
+            <label className="btn" style={{ cursor: importing ? 'wait' : 'pointer' }}>
+              {importing ? 'Reading…' : 'Import schema'}
+              <input type="file" hidden disabled={importing}
+                     accept=".json,.xlsx,.xls,.csv,.txt,.md"
+                     onChange={importFile} />
+            </label>
           </div>
         </div>
 
@@ -226,6 +294,11 @@ export default function Schema({ domain, onDomainsChanged }) {
   return (
     <div className="stack">
       {error && <div className="banner">{error}</div>}
+      {importNotes.length > 0 && (
+        <div className="banner warn">
+          {importNotes.map((n, i) => <div key={i}>{n}</div>)}
+        </div>
+      )}
 
       <div className="row wrap">
         <span className="mono" style={{ fontSize: 14 }}>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
+import Markdown from './Markdown'
 
 /* The agent's working. Shown collapsed by default — the answer is the point,
    the trace is for when it looks wrong. */
@@ -248,7 +249,7 @@ export default function Ask({ domain }) {
             <div className="bubble">
               {turn.role === 'you' && <p>{turn.text}</p>}
               {turn.error && <p style={{ color: 'var(--coral)' }}>{turn.error}</p>}
-              {turn.answer && <p>{turn.answer}</p>}
+              {turn.answer && <Markdown>{turn.answer}</Markdown>}
 
               {turn.role === 'graph' && !turn.error && (
                 <>

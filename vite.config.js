@@ -8,7 +8,7 @@ export default defineConfig({
     proxy: {
       // Dev-only: lets the console call the API without CORS friction.
       '/api': {
-        target: 'https://grbial.onrender.com', changeOrigin: true,
+        target: 'http://localhost:8004', changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, '')
       },
     },

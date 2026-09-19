@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from './api'
+import Login from './components/Login'
 import Ask from './components/Ask'
 import Design from './components/Design'
 import Explore from './components/Explore'
@@ -10,8 +11,8 @@ import Schema from './components/Schema'
 import ToolServers from './components/ToolServers'
 import Train from './components/Train'
 import Usage from './components/Usage'
+import Evals from './components/Evals'
 
-/* Shown when no logo file is present. Set VITE_ORG_NAME to change it. */
 const ORG_NAME = import.meta.env.VITE_ORG_NAME || 'KPMG'
 
 const TABS = [
@@ -23,11 +24,29 @@ const TABS = [
   { key: 'schema',  label: 'Schema',  Component: Schema },
   { key: 'train',   label: 'Train',   Component: Train },
   { key: 'tools',   label: 'Tools',   Component: ToolServers },
+  { key: 'evals',   label: 'Evals',   Component: Evals },
   { key: 'usage',   label: 'Usage',   Component: Usage },
   { key: 'access',  label: 'Access',  Component: Access },
 ]
 
 export default function App() {
+  // Kept out of the main component so that signing in or out remounts
+  // everything below, discarding any state loaded for the previous session.
+  const [user, setUser] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('kg_user') || 'null') }
+    catch { return null }
+  })
+  const [signedIn, setSignedIn] = useState(() => !!localStorage.getItem('kg_token'))
+
+  if (!signedIn) {
+    return <Login onLogin={(u) => { setUser(u); setSignedIn(true) }} />
+  }
+  return <Console user={user} onSignOut={() => {
+    api.logout(); setUser(null); setSignedIn(false)
+  }} />
+}
+
+function Console({ user, onSignOut }) {
   const [tab, setTab] = useState('ingest')
   const [domains, setDomains] = useState([])
   const [domain, setDomain] = useState('')
@@ -36,8 +55,6 @@ export default function App() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [me, setMe] = useState(null)
 
-  /* Called after the Schema tab creates or deletes an ontology so the domain
-     picker reflects it immediately. */
   const onDomainsChanged = (nextKey) => {
     setRefreshKey((k) => k + 1)
     if (nextKey) setDomain(nextKey)
@@ -51,7 +68,14 @@ export default function App() {
         const r = await api.ready()
         if (!alive) return
         setReady(r); setFatal(null)
-        if (r.domains?.length && !r.domains.includes(domain)) setDomain(r.domains[0])
+        // Read the current selection through the updater rather than the
+        // closure. The interval is created once, so a captured `domain` would
+        // stay at its mount-time value and reset the user's choice on every
+        // poll. Only fall back to the first domain when the selected one has
+        // genuinely gone from the list.
+        if (r.domains?.length) {
+          setDomain((cur) => (cur && r.domains.includes(cur) ? cur : r.domains[0]))
+        }
         setDomains(r.domains || [])
       } catch (err) {
         if (alive) setFatal(err.message)
@@ -64,8 +88,6 @@ export default function App() {
     // eslint-disable-next-line
   }, [refreshKey])
 
-  /* Hidden, not disabled: offering a button that always fails is worse than
-     not offering it. The server enforces regardless. */
   const allowed = TABS.filter((t) => {
     if (!me) return true
     if (t.key === 'access') return me.can.manage_access
@@ -89,15 +111,12 @@ export default function App() {
     <div className="shell">
       <header className="masthead">
         <div className="brandmark">
-          {/* Drop your organisation's logo at public/logo.svg (or .png).
-              If the file is absent the wordmark below is shown instead, so the
-              console never renders a broken image. */}
           <img src="/logo.svg" alt="" onError={(e) => { e.currentTarget.style.display = 'none'
                                                         e.currentTarget.nextSibling.style.display = 'block' }} />
           <span className="fallback" style={{ display: 'none' }}>{ORG_NAME}</span>
         </div>
         <span className="brand-divider" />
-        <span className="wordmark">Knowledge<b>Graph</b> Console</span>
+        <span className="wordmark">Knowledge<b>Graph</b> Platform</span>
         <nav className="tabs" role="tablist">
           {allowed.map((t) => (
             <button
@@ -115,9 +134,19 @@ export default function App() {
               {domains.map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
           )}
-          {me && (
-            <span className="hint" title={me.all_domains ? 'All domains' : me.domains.join(', ')}>
-              {me.name} · {me.role}
+          {(user || me) && (
+            <span className="who" title={me?.all_domains ? 'All domains'
+                                          : (me?.domains || []).join(', ')}>
+              <span className="who-avatar">
+                {(user?.display_name || user?.username || me?.name || '?')
+                  .charAt(0).toUpperCase()}
+              </span>
+              <span className="who-name">
+                {user?.display_name || user?.username || me?.name}
+              </span>
+              <button className="btn btn-quiet who-out" onClick={onSignOut}>
+                Sign out
+              </button>
             </span>
           )}
           <span className={`lamp ${lamp}`} title={ready?.storage?.detail || ''}>

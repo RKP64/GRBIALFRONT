@@ -9,6 +9,18 @@ export default function Explore({ domain }) {
   const [indexing, setIndexing] = useState(false)
   const [passages, setPassages] = useState(null)
   const [passageBusy, setPassageBusy] = useState(false)
+  const [impactEntity, setImpactEntity] = useState('')
+  const [impactHops, setImpactHops] = useState(2)
+  const [impact, setImpact] = useState(null)
+  const [impactBusy, setImpactBusy] = useState(false)
+
+  const runImpact = async () => {
+    if (!impactEntity.trim()) return
+    setImpactBusy(true); setError(null)
+    try { setImpact(await api.impact(domain, impactEntity.trim(), impactHops)) }
+    catch (err) { setError(err.message); setImpact(null) }
+    finally { setImpactBusy(false) }
+  }
 
   const load = async () => {
     try {
@@ -78,6 +90,69 @@ export default function Explore({ domain }) {
         </button>
         {note && <span className="hint">{note}</span>}
       </div>
+      <section className="panel">
+        <div className="panel-head">
+          What connects to an entity
+          <span className="spacer" />
+          <span className="hint">Reachability, not a prediction of consequences</span>
+        </div>
+        <div className="panel-body stack">
+          <div className="row">
+            <input className="input" value={impactEntity} style={{ flex: 1 }}
+                   placeholder="Entity name, e.g. Gate A12"
+                   onChange={(e) => setImpactEntity(e.target.value)}
+                   onKeyDown={(e) => e.key === 'Enter' && runImpact()} />
+            <select className="input" value={impactHops} style={{ width: 110 }}
+                    onChange={(e) => setImpactHops(Number(e.target.value))}>
+              {[1, 2, 3, 4].map((n) => (
+                <option key={n} value={n}>{n} hop{n === 1 ? '' : 's'}</option>
+              ))}
+            </select>
+            <button className="btn btn-primary" onClick={runImpact}
+                    disabled={impactBusy || !impactEntity.trim()}>
+              {impactBusy ? 'Tracing…' : 'Trace'}
+            </button>
+          </div>
+
+          {impact && !impact.found && (
+            <p className="hint">{impact.note}</p>
+          )}
+
+          {impact?.found && (
+            <>
+              <p className="hint">
+                <b>{impact.entity}</b> ({impact.type || 'unknown'}) —{' '}
+                {impact.total} connected {impact.total === 1 ? 'entity' : 'entities'}{' '}
+                within {impact.hops} hop{impact.hops === 1 ? '' : 's'}.
+              </p>
+              <div className="chips">
+                {Object.entries(impact.by_type).map(([type, n]) => (
+                  <span key={type} className="chip">{type} · {n}</span>
+                ))}
+              </div>
+              {Object.entries(impact.by_distance).map(([distance, items]) => (
+                <div key={distance}>
+                  <p className="hint" style={{ marginBottom: 4 }}>
+                    <b>{distance} hop{distance === '1' ? '' : 's'} away</b> ({items.length})
+                  </p>
+                  <div className="chips">
+                    {items.map((it) => (
+                      <span key={it.id} className="chip entry"
+                            title={`${it.via} ${it.direction === 'out' ? '→' : '←'} ${it.relation}`}>
+                        {it.id}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {impact.truncated && (
+                <p className="hint">Traversal was capped; there may be more.</p>
+              )}
+            </>
+          )}
+        </div>
+      </section>
+
       {passages?.passages > 0 && (
         <section className="panel">
           <div className="panel-head">
