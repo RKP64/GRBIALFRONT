@@ -140,7 +140,13 @@ export default function Ingest({ domain }) {
               <div key={e.seq} className={`tape-row ${e.kind}`}>
                 <span className="t">{clock(e.ts)}</span>
                 <span className="g" />
-                <span className="m">{e.message}</span>
+                <span className="m">
+                  {e.message}
+                  {/* The server already sends the exception text on a failed
+                      chunk. Showing only the class name turns a one-line
+                      diagnosis into a round trip through the jobs endpoint. */}
+                  {e.detail && <span className="tape-detail"> — {e.detail}</span>}
+                </span>
               </div>
             ))}
           </div>
