@@ -4,9 +4,12 @@ import { api } from '../api'
 const VERDICT_COLOUR = {
   correct: '#10B981',
   partial: '#F59E0B',
-  refused: '#64748B',
+  refused: '#0EA5E9',      // a correct refusal: the data genuinely did not hold it
   incorrect: '#EF4444',
+  error: '#94A3B8',        // the agent failed to answer — not a verdict
+  unjudged: '#94A3B8',     // the judge failed — not a verdict
 }
+const pct = (v) => (v == null ? '—' : `${Math.round(v * 100)}%`)
 
 function Score({ label, value, suffix = '' }) {
   return (
@@ -196,12 +199,21 @@ export default function Evals() {
               <span className="spacer" />
               <span className="chip">
                 {r.scores?.accuracy != null
-                  ? `${Math.round(r.scores.accuracy * 100)}% accurate` : '—'}
+                  ? `${pct(r.scores.accuracy)} accurate` : 'not scored'}
+                {r.scores?.scored != null && r.scores.scored < r.scores.total
+                  ? ` · ${r.scores.scored}/${r.scores.total} judged` : ''}
               </span>
-              {r.scores?.grounding != null && (
-                <span className="chip">{Math.round(r.scores.grounding * 100)}% grounded</span>
+              {(r.scores?.errors > 0 || r.scores?.unjudged > 0) && (
+                <span className="chip" style={{ color: '#B45309' }}
+                      title="Questions that could not be scored are excluded from accuracy">
+                  {r.scores.errors || 0} failed · {r.scores.unjudged || 0} not judged
+                </span>
               )}
-              <span className="chip">{r.scores?.median_seconds}s median</span>
+              <span className="chip" title="Only measured when the agent has answer checking switched on">
+                {r.scores?.grounding != null ? `${pct(r.scores.grounding)} grounded` : 'grounding not measured'}
+              </span>
+              {r.scores?.median_seconds != null &&
+                <span className="chip">{r.scores.median_seconds}s median</span>}
               <button className="btn btn-quiet"
                       onClick={async () => setDetail(await api.evalRun(r.id))}>
                 Open
@@ -237,15 +249,25 @@ export default function Evals() {
           <div className="panel-head">
             Comparison
             <span className="spacer" />
-            <span className="chip" style={{
-              background: comparison.accuracy_delta >= 0 ? '#E8F5E9' : '#FFEBEE',
-              color: comparison.accuracy_delta >= 0 ? '#10B981' : '#EF4444',
-            }}>
-              {comparison.accuracy_delta >= 0 ? '+' : ''}
-              {Math.round(comparison.accuracy_delta * 100)} points
-            </span>
+            {comparison.accuracy_delta != null ? (
+              <span className="chip" style={{
+                background: comparison.accuracy_delta >= 0 ? '#E8F5E9' : '#FFEBEE',
+                color: comparison.accuracy_delta >= 0 ? '#10B981' : '#EF4444',
+              }}>
+                {comparison.accuracy_delta >= 0 ? '+' : ''}
+                {Math.round(comparison.accuracy_delta * 100)} points
+              </span>
+            ) : <span className="chip">no accuracy to compare</span>}
           </div>
           <div className="panel-body stack">
+            {comparison.warning && <div className="banner">{comparison.warning}</div>}
+            <p className="hint">{comparison.questions_compared} question
+              {comparison.questions_compared === 1 ? '' : 's'} compared.</p>
+            {comparison.not_comparable?.length > 0 && (
+              <p className="hint">{comparison.not_comparable.length} left out because one
+                run failed or could not judge them — those say nothing about whether
+                answers improved.</p>
+            )}
             {comparison.regressed.length === 0 && comparison.improved.length === 0 && (
               <p className="hint">No question changed verdict.</p>
             )}
@@ -290,11 +312,20 @@ export default function Evals() {
           </div>
           <div className="panel-body stack">
             <div className="stats">
-              <Score label="accurate" value={Math.round((detail.scores?.accuracy || 0) * 100)} suffix="%" />
+              <Score label={`accurate · ${detail.scores?.scored ?? 0} judged`}
+                     value={detail.scores?.accuracy != null ? Math.round(detail.scores.accuracy * 100) : '—'}
+                     suffix={detail.scores?.accuracy != null ? '%' : ''} />
               <Score label="correct" value={detail.scores?.correct} />
+              <Score label="right to decline" value={detail.scores?.refused} />
               <Score label="partial" value={detail.scores?.partial} />
               <Score label="incorrect" value={detail.scores?.incorrect} />
-              <Score label="median" value={detail.scores?.median_seconds} suffix="s" />
+              {(detail.scores?.errors > 0 || detail.scores?.unjudged > 0) && (
+                <Score label="failed / not judged"
+                       value={`${detail.scores.errors || 0} / ${detail.scores.unjudged || 0}`} />
+              )}
+              <Score label="grounded" value={pct(detail.scores?.grounding)} />
+              <Score label="median" value={detail.scores?.median_seconds ?? '—'}
+                     suffix={detail.scores?.median_seconds != null ? 's' : ''} />
             </div>
             {(detail.results || []).map((r, i) => (
               <div key={i} className="stack" style={{

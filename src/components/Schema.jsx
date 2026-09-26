@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 
+/* The shared upper ontology. A domain type that extends one of these is the
+   point where this domain can join another — keep in step with
+   backend/app/ontology/spine.py. */
+const SPINE_TYPES = ['Person', 'Asset', 'Vendor', 'Location', 'Process', 'Document', 'Organisation', 'Event']
+
 const blank = () => ({
   key: '', name: '', description: '',
   entity_types: {}, allowed_triples: [], normalization_rules: [], id_transforms: [],
@@ -186,13 +191,16 @@ export default function Schema({ domain, onDomainsChanged }) {
             <div className="panel-head">Entity types · {typeNames.length}</div>
             <div className="panel-body" style={{ padding: 0 }}>
               <table className="grid-table">
-                <thead><tr><th>Type</th><th>Identifier rule</th></tr></thead>
+                <thead><tr><th>Type</th><th>Identifier rule</th><th>Extends (spine)</th></tr></thead>
                 <tbody>
                   {typeNames.map((name) => (
                     <tr key={name}>
                       <td style={{ color: 'var(--signal)' }}>{name}</td>
                       <td style={{ color: 'var(--muted)' }}>
                         {spec.entity_types[name].id_rule || '—'}
+                      </td>
+                      <td style={{ color: spec.entity_types[name].extends ? 'var(--signal)' : 'var(--muted)' }}>
+                        {spec.entity_types[name].extends || '—'}
                       </td>
                     </tr>
                   ))}
@@ -337,7 +345,7 @@ export default function Schema({ domain, onDomainsChanged }) {
           <div className="panel-head">Entity types</div>
           <div className="panel-body stack">
             <table className="grid-table">
-              <thead><tr><th>Type</th><th>Identifier rule</th><th /></tr></thead>
+              <thead><tr><th>Type</th><th>Identifier rule</th><th>Extends (spine)</th><th /></tr></thead>
               <tbody>
                 {typeNames.map((name) => (
                   <tr key={name}>
@@ -349,6 +357,16 @@ export default function Schema({ domain, onDomainsChanged }) {
                              onChange={(e) => setD({ entity_types: { ...draft.entity_types,
                                [name]: { ...draft.entity_types[name], id_rule: e.target.value } } })} />
                     </td>
+                    <td style={{ width: 150 }}>
+                      <select className="input" style={{ padding: '4px 6px' }}
+                              title="The shared type this joins through, so other domains can connect to it"
+                              value={draft.entity_types[name].extends || ''}
+                              onChange={(e) => setD({ entity_types: { ...draft.entity_types,
+                                [name]: { ...draft.entity_types[name], extends: e.target.value } } })}>
+                        <option value="">— none —</option>
+                        {SPINE_TYPES.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </td>
                     <td style={{ width: 34 }}>
                       <button className="btn btn-quiet" style={{ padding: '2px 7px' }}
                               onClick={() => removeType(name)} aria-label={`Remove ${name}`}>✕</button>
@@ -356,7 +374,7 @@ export default function Schema({ domain, onDomainsChanged }) {
                   </tr>
                 ))}
                 {typeNames.length === 0 && (
-                  <tr><td colSpan={3} style={{ color: 'var(--muted)' }}>
+                  <tr><td colSpan={4} style={{ color: 'var(--muted)' }}>
                     Add the kinds of things this domain contains.
                   </td></tr>
                 )}

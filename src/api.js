@@ -33,35 +33,6 @@ async function request(path, options = {}) {
   return res.status === 204 ? null : res.json()
 }
 
-/** Turn an error body into something a person can read.
- *
- * FastAPI returns a plain string for errors we raise ourselves, but a list of
- * objects for request-validation failures — {loc, msg, type} per offending
- * field. Passing that list straight to Error() stringifies each object as
- * "[object Object]", which hides the one thing the user needs: which field is
- * wrong and why.
- */
-function formatDetail(detail) {
-  if (!detail) return ''
-  if (typeof detail === 'string') return detail
-  if (Array.isArray(detail)) {
-    return detail
-      .map((item) => {
-        if (typeof item === 'string') return item
-        const where = Array.isArray(item?.loc)
-          ? item.loc.filter((p) => p !== 'body').join(' → ')
-          : ''
-        const message = item?.msg || item?.message || JSON.stringify(item)
-        return where ? `${where}: ${message}` : message
-      })
-      .join('; ')
-  }
-  if (typeof detail === 'object') {
-    return detail.msg || detail.message || JSON.stringify(detail)
-  }
-  return String(detail)
-}
-
 export const api = {
   login: (username, password) =>
     request('/auth/login', {
@@ -84,8 +55,9 @@ export const api = {
     form.append('file', file)
     return request('/ontologies/import', { method: 'POST', body: form })
   },
-  impact: (domain, entity, hops = 2) =>
-    request(`/graph/${domain}/impact?entity=${encodeURIComponent(entity)}&hops=${hops}`),
+  impact: (domain, entity, hops = 2, limit = 600) =>
+    request(`/graph/${domain}/impact?entity=${encodeURIComponent(entity)}` +
+            `&hops=${hops}&limit=${limit}`),
   evalSets: () => request('/evals/sets'),
   evalSet: (key) => request(`/evals/sets/${key}`),
   uploadEvalSet: (key, name, file) => {
@@ -273,9 +245,14 @@ export const api = {
   buildPassageIndex: (domain) =>
     request(`/graph/${domain}/passages/index`, { method: 'POST' }),
   clearPassages: (domain) => request(`/graph/${domain}/passages`, { method: 'DELETE' }),
-  visualize: (domain, limit = 150, nodeType) =>
-    request(`/graph/${domain}/visualize?limit=${limit}` +
+  // The timestamp defeats any HTTP cache between the browser and the API, so
+  // Refresh always reflects what ingestion has written since the last load.
+  visualize: (domain, limit = 250, nodeType) =>
+    request(`/graph/${domain}/visualize?limit=${limit}&_=${Date.now()}` +
       (nodeType ? `&node_type=${encodeURIComponent(nodeType)}` : '')),
+  graphSearch: (domain, q, limit = 12) =>
+    request(`/graph/${domain}/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+  spine: () => request('/ontologies/spine'),
   jobs: () => request('/jobs'),
   job: (id) => request(`/jobs/${id}`),
   cancelJob: (id) => request(`/jobs/${id}/cancel`, { method: 'POST' }),
@@ -312,4 +289,24 @@ export const api = {
   },
   streamUrl: (id) => `${BASE}/jobs/${id}/stream`,
   apiKey: KEY,
+}
+
+
+/* FastAPI returns a string for errors raised by the app, but a list of
+   {loc, msg, type} objects for request-validation failures. Passed straight to
+   Error() that list renders as "[object Object]", hiding which field is wrong. */
+function formatDetail(detail) {
+  if (!detail) return ''
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    return detail.map((item) => {
+      if (typeof item === 'string') return item
+      const where = Array.isArray(item?.loc)
+        ? item.loc.filter((p) => p !== 'body').join(' → ') : ''
+      const message = item?.msg || item?.message || JSON.stringify(item)
+      return where ? `${where}: ${message}` : message
+    }).join('; ')
+  }
+  if (typeof detail === 'object') return detail.msg || detail.message || JSON.stringify(detail)
+  return String(detail)
 }
